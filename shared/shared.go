@@ -1,9 +1,18 @@
 package shared
 
 import (
+	"encoding/gob"
+	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 )
+
+func init() { 
+	gob.Register(Membership{})
+	gob.Register(Requests{})
+	gob.Register(Node{})
+}
 
 const (
 	MAX_NODES = 8
@@ -25,15 +34,9 @@ func (n Node) CrashTime() int {
 	return rand.Intn(max-min) + min
 }
 
-func (n Node) InitializeNeighbors(id int) [2]int {
-	neighbor1 := RandInt()
-	for neighbor1 == id {
-		neighbor1 = RandInt()
-	}
-	neighbor2 := RandInt()
-	for neighbor1 == neighbor2 || neighbor2 == id {
-		neighbor2 = RandInt()
-	}
+func (n Node) InitializeNeighbors(id int, maxNodes int) [2]int {
+	neighbor1 := (id + 1) % maxNodes
+	neighbor2 := (id + 2) % maxNodes
 	return [2]int{neighbor1, neighbor2}
 }
 
@@ -47,6 +50,7 @@ func RandInt() int {
 // Membership struct represents participanting nodes
 type Membership struct {
 	Members map[int]Node
+	lock sync.Mutex
 }
 
 // Returns a new instance of a Membership (pointer).
@@ -58,10 +62,10 @@ func NewMembership() *Membership {
 
 // Adds a node to the membership list.
 func (m *Membership) Add(payload Node, reply *Node) error {
-	//TODO
-	// fmt.Printf("Adding node %d\n", payload.ID);
+	m.lock.Lock()
 	m.Members[payload.ID] = payload;
-	*reply = m.Members[payload.ID];
+	*reply = payload;
+	m.lock.Unlock();
 	return nil;
 }
 
@@ -69,15 +73,19 @@ func (m *Membership) Add(payload Node, reply *Node) error {
 func (m *Membership) Update(payload Node, reply *Node) error {
 	//TODO
 	// fmt.Printf("Updating node %d\n", payload.ID);
+	m.lock.Lock()
 	m.Members[payload.ID] = payload;
-	*reply = m.Members[payload.ID];
+	*reply = payload;
+	m.lock.Unlock();
 	return nil;
 }
 
 // Returns a node with specific ID.
 func (m *Membership) Get(payload int, reply *Node) error {
 	//TODO
+	m.lock.Lock();
 	*reply = m.Members[payload];
+	m.lock.Unlock();
 	return nil;
 }
 
@@ -92,6 +100,7 @@ type Request struct {
 // Requests struct represents pending message requests
 type Requests struct {
 	Pending map[int]Membership
+	lock sync.Mutex
 }
 
 // Returns a new instance of a Membership (pointer).
@@ -105,19 +114,24 @@ func NewRequests() *Requests {
 // Adds a new message request to the pending list
 func (req *Requests) Add(payload Request, reply *bool) error {
 	//TODO
+	req.lock.Lock();
 	req.Pending[payload.ID] = payload.Table;
+	req.lock.Unlock()	
 	return nil;
 }
 
 // Listens to communication from neighboring nodes.
 func (req *Requests) Listen(ID int, reply *Membership) error {
+	req.lock.Lock()	
+	defer req.lock.Unlock()
 	neighborMembership, exists := req.Pending[ID];
 	if (exists) { 
-		// fmt.Printf("Found pending request for ID %d\n", ID);
+		fmt.Printf("Found pending request for ID %d\n", ID);
 		*reply = neighborMembership;
 		delete(req.Pending, ID);
-	// } else { 
-	// 	fmt.Printf("No pending request for ID %d\n", ID);
+	} else { 
+		fmt.Printf("No pending request for ID %d\n", ID);
+		reply = NewMembership();
 	}
 	return nil;
 }
@@ -125,17 +139,20 @@ func (req *Requests) Listen(ID int, reply *Membership) error {
 func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 	//TODO 
 	// fmt.Println("Combining tables");
-	var combinedTable Membership = *NewMembership();
+	table1.lock.Lock()	
+	table2.lock.Lock()	
+	defer table1.lock.Unlock()
+	defer table2.lock.Unlock()
+	var combinedTable *Membership = NewMembership();
 	for key, value := range table2.Members { 
 		combinedTable.Members[key] = value;
 	}
 	for key, value := range table1.Members {
 		node2, keyPresent := table2.Members[key];
 		if(!keyPresent || node2.Hbcounter < value.Hbcounter) {
-			// fmt.Println("Updating node", key);
 			combinedTable.Members[key] = value;
 		}
 	}
-	return &combinedTable;
+	return combinedTable;
 }
 

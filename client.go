@@ -13,48 +13,48 @@ import (
 
 const (
 	MAX_NODES  = 8
-	X_TIME     = 1
-	Y_TIME     = 2
-	Z_TIME_MAX = 100
-	Z_TIME_MIN = 10
+	X_TIME     = 2
+	Y_TIME     = 4
+	Z_TIME_MAX = 60
+	Z_TIME_MIN = 40
 )
+
 var self_node shared.Node
 
 // Send the current membership table to a neighboring node with the provided ID
 func sendMessage(server rpc.Client, id int, membership shared.Membership) {
-	//TODO
+//TODO
+
 	req := shared.Request{
-		ID: id,
+		ID:    id,
 		Table: membership,
 		}
-	var success bool;
+	var success bool
 	if err := server.Call("Requests.Add", req, &success); err != nil { 
-		fmt.Println("Failed Send Message error:  ", err);
-	// } else { 
-	// 	fmt.Println("Sucess: message sent to node", id)
+		fmt.Println("Failed Send Message error:  ", err)
 	}
 }
 
 // Read incoming messages from other nodes
 func readMessages(server rpc.Client, id int, membership shared.Membership) *shared.Membership {
 	//TODO
-	var neighborMembership shared.Membership;
-	server.Call("Requests.Listen", id, &neighborMembership);
-	var combinedTable *shared.Membership;
-	combinedTable = shared.CombineTables(&membership, &neighborMembership);
-	return combinedTable;
+	var neighborMembership shared.Membership
+	if err := server.Call("Requests.Listen", id, &neighborMembership); err != nil { 
+		fmt.Println("Failed Read Messages error:  ", err)
+	} 
+	return &neighborMembership
 }
 
 func calcTime() float64 {
 	//TODO
-	return float64(time.Now().UnixNano()) / float64(time.Second);
+	return float64(time.Now().UnixNano()) / float64(time.Second)
 }
 
 var wg = &sync.WaitGroup{}
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	Z_TIME := rand.Intn(Z_TIME_MAX - Z_TIME_MIN) + Z_TIME_MIN
+	Z_TIME := rand.Intn(Z_TIME_MAX-Z_TIME_MIN) + Z_TIME_MIN
 
 	// Connect to RPC server
 	server, _ := rpc.DialHTTP("tcp", "localhost:9005")
@@ -85,13 +85,15 @@ func main() {
 		fmt.Printf("Success: Node created with id= %d\n", id)
 	}
 
-	neighbors := self_node.InitializeNeighbors(id)
+	neighbors := self_node.InitializeNeighbors(id, MAX_NODES)
 	fmt.Println("Neighbors:", neighbors)
 
 	membership := shared.NewMembership()
-	membership.Add(self_node, &self_node)
+	var reply shared.Node;
+	membership.Add(self_node, &reply);
 
 	sendMessage(*server, neighbors[0], *membership)
+	sendMessage(*server, neighbors[1], *membership)
 
 	// crashTime := self_node.CrashTime()
 
@@ -105,59 +107,50 @@ func main() {
 
 func runAfterX(server *rpc.Client, node *shared.Node, membership **shared.Membership, id int) {
 	//TODO
-	self_node.Hbcounter += 1;
-	self_node.Time = calcTime();
 	// fmt.Print("calling membership update\n")
-	var reply shared.Node;
-	printMembership(**membership);
-	if err:= server.Call("Membership.Update", self_node, &reply); err != nil { 
+	currTime:= calcTime()
+	self_node.Hbcounter += 1;
+	self_node.Time = currTime;
+	var reply shared.Node
+	printMembership(**membership)
+	if err := server.Call("Membership.Update", self_node, &reply); err != nil { 
 		fmt.Println("Failed: Membership.Update() error: ", err)
-	// } else {
-	// 	fmt.Printf("Success: Node updated with id= %d\n", id)
 	}
-	(*membership).Update(self_node, &self_node);
-	// fmt.Print("after calling membership update\n");
-	printMembership(**membership);
+	printMembership(**membership)
 	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
 }
 
 func runAfterY(server *rpc.Client, neighbors [2]int, membership **shared.Membership, id int) {
-	//TODO
-	// fmt.Printf("calling the readMessages function\n");
-		
-	// var currTime float64 = calcTime();
-	// for _, node := range(membership.Members) {
-	// 	if(node.Alive && (currTime - node.Time) > ( MAX_NODES * Y_TIME)) { 
-	// 		node.Alive = false;
-	// 		var reply shared.Node;
-	// 		if err:= server.Call("Membership.Update", node, &reply); err != nil { 
-	// 			fmt.Println("Failed: Membership.Update() error: ", err)
-	// 		}
-	// 	}
-	// }
-	*membership = readMessages(*server, neighbors[0],  **membership);
-	*membership = readMessages(*server, neighbors[1],  **membership);
-	// printMembership(**membership)
-	// printMembership(*n1);
-	// printMembership(*n2);
-	printMembership(**membership);	
-	// fmt.Printf("sending updated table to neighbors\n");
-
-	sendMessage(*server, neighbors[0], **membership);
-	sendMessage(*server, neighbors[1], **membership);
-	// fmt.Printf("done sending updates to neighbors\n");
+	var neighborMembership = readMessages(*server, self_node.ID, **membership);
+	fmt.Println("combining tables")
+	var combinedTable = shared.CombineTables(*membership, neighborMembership)
+	fmt.Println("done combining")
+	*membership = combinedTable;
+	var currTime float64 = calcTime();
+	//kill nodes that have not been incrased or had time update 
+	for _, node := range((*membership).Members) {
+		fmt.Println("time difference: ", currTime - node.Time);
+		if(node.Alive && (currTime - node.Time) > ( (MAX_NODES-1) * Y_TIME)) { 
+			node.Alive = false;
+			var reply shared.Node;
+			if err:= server.Call("Membership.Update", node, &reply); err != nil { 
+				fmt.Println("Failed: Membership.Update() killing error: ", err)
+			}
+		}
+	}
+	printMembership(**membership)	
+	sendMessage(*server, neighbors[0], **membership)
+	sendMessage(*server, neighbors[1], **membership)
 	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
 }
 
 func runAfterZ(server *rpc.Client, id int) {
 	//TODO
-	fmt.Printf("Node %d has failed\n", id);
-	os.Exit(0);
+	fmt.Printf("Node %d has failed\n", id)
+	os.Exit(0)
 }
 
-
-
-func printMembership(m shared.Membership){
+func printMembership(m shared.Membership) {
 	for _, val := range m.Members {
 		status := "is Alive"
 		if !val.Alive {
