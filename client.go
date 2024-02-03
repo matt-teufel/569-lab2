@@ -13,10 +13,10 @@ import (
 
 const (
 	MAX_NODES  = 8
-	X_TIME     = 2
-	Y_TIME     = 4
-	Z_TIME_MAX = 60
-	Z_TIME_MIN = 40
+	X_TIME     = 10
+	Y_TIME     = 20
+	Z_TIME_MAX = 100
+	Z_TIME_MIN = 80
 )
 
 var self_node shared.Node
@@ -38,7 +38,7 @@ func sendMessage(server rpc.Client, id int, membership shared.Membership) {
 // Read incoming messages from other nodes
 func readMessages(server rpc.Client, id int, membership shared.Membership) *shared.Membership {
 	//TODO
-	var neighborMembership shared.Membership
+	var neighborMembership shared.Membership;
 	if err := server.Call("Requests.Listen", id, &neighborMembership); err != nil { 
 		fmt.Println("Failed Read Messages error:  ", err)
 	} 
@@ -108,39 +108,43 @@ func main() {
 func runAfterX(server *rpc.Client, node *shared.Node, membership **shared.Membership, id int) {
 	//TODO
 	// fmt.Print("calling membership update\n")
+	fmt.Println("run after x");
 	currTime:= calcTime()
 	self_node.Hbcounter += 1;
 	self_node.Time = currTime;
-	var reply shared.Node
-	printMembership(**membership)
+	var reply shared.Node;
+	(*membership).Update(self_node, &reply);
+	// printMembership(**membership)
 	if err := server.Call("Membership.Update", self_node, &reply); err != nil { 
 		fmt.Println("Failed: Membership.Update() error: ", err)
 	}
-	printMembership(**membership)
+	// printMembership(**membership)
 	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
 }
 
 func runAfterY(server *rpc.Client, neighbors [2]int, membership **shared.Membership, id int) {
+	fmt.Println("run after y");
 	var neighborMembership = readMessages(*server, self_node.ID, **membership);
-	fmt.Println("combining tables")
 	var combinedTable = shared.CombineTables(*membership, neighborMembership)
-	fmt.Println("done combining")
+	combinedTable.Get(id, &self_node);
+	// (*membership).lock.Lock();
 	*membership = combinedTable;
-	var currTime float64 = calcTime();
+	// var currTime float64 = calcTime();
 	//kill nodes that have not been incrased or had time update 
-	for _, node := range((*membership).Members) {
-		fmt.Println("time difference: ", currTime - node.Time);
-		if(node.Alive && (currTime - node.Time) > ( (MAX_NODES-1) * Y_TIME)) { 
-			node.Alive = false;
-			var reply shared.Node;
-			if err:= server.Call("Membership.Update", node, &reply); err != nil { 
-				fmt.Println("Failed: Membership.Update() killing error: ", err)
-			}
-		}
-	}
+	// for _, node := range((*membership).Members) {
+	// 	fmt.Println("time difference: ", currTime - node.Time);
+	// 	if(node.Alive && (currTime - node.Time) > ( (MAX_NODES-1) * Y_TIME)) { 
+	// 		node.Alive = false;
+	// 		var reply shared.Node;
+	// 		if err:= server.Call("Membership.Update", node, &reply); err != nil { 
+	// 			fmt.Println("Failed: Membership.Update() killing error: ", err)
+	// 		}
+	// 	}
+	// }
 	printMembership(**membership)	
 	sendMessage(*server, neighbors[0], **membership)
 	sendMessage(*server, neighbors[1], **membership)
+	// (*membership).lock.Unlock();
 	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
 }
 
@@ -159,4 +163,8 @@ func printMembership(m shared.Membership) {
 		fmt.Printf("Node %d has hb %d, time %.1f and %s\n", val.ID, val.Hbcounter, val.Time, status)
 	}
 	fmt.Println("")
+}
+
+func printNode(n shared.Node) { 
+	fmt.Printf("Printing node in run after X %d has hb %d, time %.1f and %s\n", n.ID, n.Hbcounter, n.Time, n.Alive);
 }

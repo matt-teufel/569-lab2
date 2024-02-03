@@ -63,7 +63,12 @@ func NewMembership() *Membership {
 // Adds a node to the membership list.
 func (m *Membership) Add(payload Node, reply *Node) error {
 	m.lock.Lock()
-	m.Members[payload.ID] = payload;
+	var copy Node;
+	copy.Alive = payload.Alive;
+	copy.ID = payload.ID;
+	copy.Time = payload.Time;
+	copy.Hbcounter = payload.Hbcounter;
+	m.Members[payload.ID] = copy;
 	*reply = payload;
 	m.lock.Unlock();
 	return nil;
@@ -74,7 +79,11 @@ func (m *Membership) Update(payload Node, reply *Node) error {
 	//TODO
 	// fmt.Printf("Updating node %d\n", payload.ID);
 	m.lock.Lock()
-	m.Members[payload.ID] = payload;
+	if node, ok := m.Members[payload.ID]; ok {
+		node.Alive = payload.Alive;
+		node.Hbcounter = payload.Hbcounter;
+		node.Time = payload.Time;
+	}
 	*reply = payload;
 	m.lock.Unlock();
 	return nil;
@@ -115,8 +124,16 @@ func NewRequests() *Requests {
 func (req *Requests) Add(payload Request, reply *bool) error {
 	//TODO
 	req.lock.Lock();
-	req.Pending[payload.ID] = payload.Table;
-	req.lock.Unlock()	
+	mem := NewMembership();
+	for _, value := range payload.Table.Members {
+		if(value.Alive) { 
+			var reply Node;
+			mem.Add(value, &reply);
+		}
+	}
+	req.Pending[payload.ID] = *mem;
+	req.lock.Unlock()
+	*reply = true;	
 	return nil;
 }
 
@@ -124,15 +141,17 @@ func (req *Requests) Add(payload Request, reply *bool) error {
 func (req *Requests) Listen(ID int, reply *Membership) error {
 	req.lock.Lock()	
 	defer req.lock.Unlock()
-	neighborMembership, exists := req.Pending[ID];
-	if (exists) { 
-		fmt.Printf("Found pending request for ID %d\n", ID);
-		*reply = neighborMembership;
-		delete(req.Pending, ID);
-	} else { 
-		fmt.Printf("No pending request for ID %d\n", ID);
-		reply = NewMembership();
-	}
+	reply = NewMembership();
+	if mem, exists := req.Pending[ID]; exists { 
+		var nr Node;
+		for _, n := range mem.Members {
+			if(n.Alive) {
+				reply.Add(n, &nr);
+			}
+		}
+		new := NewMembership()
+		req.Pending[ID] = *new;
+	} 
 	return nil;
 }
 
@@ -143,16 +162,44 @@ func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 	table2.lock.Lock()	
 	defer table1.lock.Unlock()
 	defer table2.lock.Unlock()
+	fmt.Println("Combining tables");
+	printMembership(*table1);
+	printMembership(*table2);
+
 	var combinedTable *Membership = NewMembership();
-	for key, value := range table2.Members { 
-		combinedTable.Members[key] = value;
-	}
-	for key, value := range table1.Members {
-		node2, keyPresent := table2.Members[key];
-		if(!keyPresent || node2.Hbcounter < value.Hbcounter) {
-			combinedTable.Members[key] = value;
+	var reply Node;
+	for _, value := range table2.Members {
+		if (value.Alive) {
+			fmt.Println("first add")
+			printNode(value);
+			combinedTable.Add(value, &reply);
 		}
 	}
+	for key, value := range table1.Members {
+		if(value.Alive) { 
+			node2, keyPresent := table2.Members[key];
+			if(!keyPresent || node2.Hbcounter < value.Hbcounter) {
+				fmt.Printf("second add\n")
+				printNode(value);
+				combinedTable.Add(value, &reply);
+			}
+		}
+	}
+	fmt.Println("done combining tables")
 	return combinedTable;
 }
 
+func printMembership(m Membership) {
+	for _, val := range m.Members {
+		status := "is Alive"
+		if !val.Alive {
+			status = "is Dead"
+		}
+		fmt.Printf("Node %d has hb %d, time %.1f and %s\n", val.ID, val.Hbcounter, val.Time, status)
+	}
+	fmt.Println("")
+}
+
+func printNode(n Node) { 
+	fmt.Printf("combine tables node:  %d has hb %d, time %.1f and %s\n", n.ID, n.Hbcounter, n.Time, n.Alive);
+}
