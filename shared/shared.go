@@ -34,9 +34,20 @@ func (n Node) CrashTime() int {
 	return rand.Intn(max-min) + min
 }
 
-func (n Node) InitializeNeighbors(id int, maxNodes int) [2]int {
-	neighbor1 := (id + 1) % maxNodes
-	neighbor2 := (id + 2) % maxNodes
+// func (n Node) InitializeNeighbors(id int, maxNodes int) [2]int {
+// 	neighbor1 := (id + 1) % maxNodes
+// 	neighbor2 := (id + 2) % maxNodes
+// 	return [2]int{neighbor1, neighbor2}
+// }
+func (n Node) InitializeNeighbors(id int) [2]int {
+	neighbor1 := RandInt()
+	for neighbor1 == id {
+		neighbor1 = RandInt()
+	}
+	neighbor2 := RandInt()
+	for neighbor1 == neighbor2 || neighbor2 == id {
+		neighbor2 = RandInt()
+	}
 	return [2]int{neighbor1, neighbor2}
 }
 
@@ -44,8 +55,6 @@ func RandInt() int {
 	rand.Seed(time.Now().UnixNano())
 	return rand.Intn(MAX_NODES-1+1) + 1
 }
-
-/*---------------*/
 
 // Membership struct represents participanting nodes
 type Membership struct {
@@ -63,12 +72,7 @@ func NewMembership() *Membership {
 // Adds a node to the membership list.
 func (m *Membership) Add(payload Node, reply *Node) error {
 	m.lock.Lock()
-	var copy Node;
-	copy.Alive = payload.Alive;
-	copy.ID = payload.ID;
-	copy.Time = payload.Time;
-	copy.Hbcounter = payload.Hbcounter;
-	m.Members[payload.ID] = copy;
+	m.Members[payload.ID] = payload;
 	*reply = payload;
 	m.lock.Unlock();
 	return nil;
@@ -79,11 +83,7 @@ func (m *Membership) Update(payload Node, reply *Node) error {
 	//TODO
 	// fmt.Printf("Updating node %d\n", payload.ID);
 	m.lock.Lock()
-	if node, ok := m.Members[payload.ID]; ok {
-		node.Alive = payload.Alive;
-		node.Hbcounter = payload.Hbcounter;
-		node.Time = payload.Time;
-	}
+	m.Members[payload.ID] = payload;
 	*reply = payload;
 	m.lock.Unlock();
 	return nil;
@@ -124,14 +124,7 @@ func NewRequests() *Requests {
 func (req *Requests) Add(payload Request, reply *bool) error {
 	//TODO
 	req.lock.Lock();
-	mem := NewMembership();
-	for _, value := range payload.Table.Members {
-		if(value.Alive) { 
-			var reply Node;
-			mem.Add(value, &reply);
-		}
-	}
-	req.Pending[payload.ID] = *mem;
+	req.Pending[payload.ID] = payload.Table;
 	req.lock.Unlock()
 	*reply = true;	
 	return nil;
@@ -141,17 +134,11 @@ func (req *Requests) Add(payload Request, reply *bool) error {
 func (req *Requests) Listen(ID int, reply *Membership) error {
 	req.lock.Lock()	
 	defer req.lock.Unlock()
-	reply = NewMembership();
 	if mem, exists := req.Pending[ID]; exists { 
-		var nr Node;
-		for _, n := range mem.Members {
-			if(n.Alive) {
-				reply.Add(n, &nr);
-			}
-		}
-		new := NewMembership()
-		req.Pending[ID] = *new;
-	} 
+		*reply = mem;
+	} else { 
+		reply = NewMembership();
+	}
 	return nil;
 }
 

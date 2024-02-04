@@ -38,11 +38,11 @@ func sendMessage(server rpc.Client, id int, membership shared.Membership) {
 // Read incoming messages from other nodes
 func readMessages(server rpc.Client, id int, membership shared.Membership) *shared.Membership {
 	//TODO
-	var neighborMembership shared.Membership;
-	if err := server.Call("Requests.Listen", id, &neighborMembership); err != nil { 
+	var m shared.Membership;
+	if err := server.Call("Requests.Listen", id, &m); err != nil { 
 		fmt.Println("Failed Read Messages error:  ", err)
 	} 
-	return &neighborMembership
+	return &m;
 }
 
 func calcTime() float64 {
@@ -51,6 +51,8 @@ func calcTime() float64 {
 }
 
 var wg = &sync.WaitGroup{}
+
+var globalLock sync.Mutex;
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
@@ -85,7 +87,7 @@ func main() {
 		fmt.Printf("Success: Node created with id= %d\n", id)
 	}
 
-	neighbors := self_node.InitializeNeighbors(id, MAX_NODES)
+	neighbors := self_node.InitializeNeighbors(id)
 	fmt.Println("Neighbors:", neighbors)
 
 	membership := shared.NewMembership()
@@ -97,38 +99,41 @@ func main() {
 
 	// crashTime := self_node.CrashTime()
 
-	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, &self_node, &membership, id) })
-	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, &membership, id) })
+	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
+	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
 	time.AfterFunc(time.Second*time.Duration(Z_TIME), func() { runAfterZ(server, id) })
 
 	wg.Add(1)
 	wg.Wait()
 }
 
-func runAfterX(server *rpc.Client, node *shared.Node, membership **shared.Membership, id int) {
+func runAfterX(server *rpc.Client, node *shared.Node, membership *shared.Membership, id int) {
 	//TODO
 	// fmt.Print("calling membership update\n")
-	fmt.Println("run after x");
+	// fmt.Println("run after x");
+	globalLock.Lock();
 	currTime:= calcTime()
-	self_node.Hbcounter += 1;
-	self_node.Time = currTime;
+	node.Hbcounter += 1;
+	node.Time = currTime;
 	var reply shared.Node;
-	(*membership).Update(self_node, &reply);
+	membership.Update(*node, &reply);
 	// printMembership(**membership)
-	if err := server.Call("Membership.Update", self_node, &reply); err != nil { 
+	if err := server.Call("Membership.Update", node, &reply); err != nil { 
 		fmt.Println("Failed: Membership.Update() error: ", err)
 	}
 	// printMembership(**membership)
-	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
+	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, node, membership, id) })
+	os.Stdout.Sync()
+	globalLock.Unlock();
 }
 
-func runAfterY(server *rpc.Client, neighbors [2]int, membership **shared.Membership, id int) {
-	fmt.Println("run after y");
-	var neighborMembership = readMessages(*server, self_node.ID, **membership);
-	var combinedTable = shared.CombineTables(*membership, neighborMembership)
-	combinedTable.Get(id, &self_node);
+func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membership, id int) {
+	// fmt.Println("run after y");
+	globalLock.Lock();
+	neighborMembership := readMessages(*server, id, *membership);
+	var combinedTable = shared.CombineTables(membership, neighborMembership)
 	// (*membership).lock.Lock();
-	*membership = combinedTable;
+	membership = combinedTable;
 	// var currTime float64 = calcTime();
 	//kill nodes that have not been incrased or had time update 
 	// for _, node := range((*membership).Members) {
@@ -141,11 +146,13 @@ func runAfterY(server *rpc.Client, neighbors [2]int, membership **shared.Members
 	// 		}
 	// 	}
 	// }
-	printMembership(**membership)	
-	sendMessage(*server, neighbors[0], **membership)
-	sendMessage(*server, neighbors[1], **membership)
+	printMembership(*membership)	
+	sendMessage(*server, neighbors[0], *membership)
+	sendMessage(*server, neighbors[1], *membership)
 	// (*membership).lock.Unlock();
 	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
+	os.Stdout.Sync();
+	globalLock.Unlock();
 }
 
 func runAfterZ(server *rpc.Client, id int) {
