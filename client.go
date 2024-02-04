@@ -13,10 +13,10 @@ import (
 
 const (
 	MAX_NODES  = 8
-	X_TIME     = 10
-	Y_TIME     = 20
+	X_TIME     = 2
+	Y_TIME     = 5
 	Z_TIME_MAX = 100
-	Z_TIME_MIN = 80
+	Z_TIME_MIN = 40
 )
 
 var self_node shared.Node
@@ -108,8 +108,6 @@ func main() {
 }
 
 func runAfterX(server *rpc.Client, node *shared.Node, membership *shared.Membership, id int) {
-	//TODO
-	// fmt.Print("calling membership update\n")
 	// fmt.Println("run after x");
 	globalLock.Lock();
 	currTime:= calcTime()
@@ -117,13 +115,10 @@ func runAfterX(server *rpc.Client, node *shared.Node, membership *shared.Members
 	node.Time = currTime;
 	var reply shared.Node;
 	membership.Update(*node, &reply);
-	// printMembership(**membership)
 	if err := server.Call("Membership.Update", node, &reply); err != nil { 
 		fmt.Println("Failed: Membership.Update() error: ", err)
 	}
-	// printMembership(**membership)
 	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, node, membership, id) })
-	os.Stdout.Sync()
 	globalLock.Unlock();
 }
 
@@ -132,26 +127,24 @@ func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membersh
 	globalLock.Lock();
 	neighborMembership := readMessages(*server, id, *membership);
 	var combinedTable = shared.CombineTables(membership, neighborMembership)
-	// (*membership).lock.Lock();
 	membership = combinedTable;
-	// var currTime float64 = calcTime();
-	//kill nodes that have not been incrased or had time update 
-	// for _, node := range((*membership).Members) {
-	// 	fmt.Println("time difference: ", currTime - node.Time);
-	// 	if(node.Alive && (currTime - node.Time) > ( (MAX_NODES-1) * Y_TIME)) { 
-	// 		node.Alive = false;
-	// 		var reply shared.Node;
-	// 		if err:= server.Call("Membership.Update", node, &reply); err != nil { 
-	// 			fmt.Println("Failed: Membership.Update() killing error: ", err)
-	// 		}
-	// 	}
-	// }
+	var currTime float64 = calcTime();
+	// kill nodes that have not been incrased or had time update 
+	for _, node := range((*membership).Members) {
+		// fmt.Println("time difference: ", currTime - node.Time);
+		if(node.Alive && (currTime - node.Time) > ( MAX_NODES/2 * Y_TIME)) { 
+			node.Alive = false;
+			var reply shared.Node;
+			membership.Update(node, &reply);
+			if err:= server.Call("Membership.Update", node, &reply); err != nil { 
+				fmt.Println("Failed: Membership.Update() killing error: ", err)
+			}
+		}
+	}
 	printMembership(*membership)	
 	sendMessage(*server, neighbors[0], *membership)
 	sendMessage(*server, neighbors[1], *membership)
-	// (*membership).lock.Unlock();
 	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
-	os.Stdout.Sync();
 	globalLock.Unlock();
 }
 

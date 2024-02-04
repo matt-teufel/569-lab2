@@ -2,7 +2,6 @@ package shared
 
 import (
 	"encoding/gob"
-	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -149,16 +148,16 @@ func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 	table2.lock.Lock()	
 	defer table1.lock.Unlock()
 	defer table2.lock.Unlock()
-	fmt.Println("Combining tables");
-	printMembership(*table1);
-	printMembership(*table2);
+	// fmt.Println("Combining tables");
+	// printMembership(*table1);
+	// printMembership(*table2);
 
 	var combinedTable *Membership = NewMembership();
 	var reply Node;
 	for _, value := range table2.Members {
 		if (value.Alive) {
-			fmt.Println("first add")
-			printNode(value);
+			// fmt.Println("first add")
+			// printNode(value);
 			combinedTable.Add(value, &reply);
 		}
 	}
@@ -166,27 +165,27 @@ func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 		if(value.Alive) { 
 			node2, keyPresent := table2.Members[key];
 			if(!keyPresent || node2.Hbcounter < value.Hbcounter) {
-				fmt.Printf("second add\n")
-				printNode(value);
+				// fmt.Printf("second add\n")
+				// printNode(value);
 				combinedTable.Add(value, &reply);
 			}
 		}
 	}
-	fmt.Println("done combining tables")
+	// fmt.Println("done combining tables")
 	return combinedTable;
 }
 
-func printMembership(m Membership) {
-	for _, val := range m.Members {
-		status := "is Alive"
-		if !val.Alive {
-			status = "is Dead"
-		}
-		fmt.Printf("Node %d has hb %d, time %.1f and %s\n", val.ID, val.Hbcounter, val.Time, status)
-	}
-	fmt.Println("")
-}
+// func printMembership(m Membership) {
+// 	for _, val := range m.Members {
+// 		status := "is Alive"
+// 		if !val.Alive {
+// 			status = "is Dead"
+// 		}
+// 		fmt.Printf("Node %d has hb %d, time %.1f and %s\n", val.ID, val.Hbcounter, val.Time, status)
+// 	}
+// 	fmt.Println("")
+// }
 
-func printNode(n Node) { 
-	fmt.Printf("combine tables node:  %d has hb %d, time %.1f and %s\n", n.ID, n.Hbcounter, n.Time, n.Alive);
-}
+// func printNode(n Node) { 
+// 	fmt.Printf("combine tables node:  %d has hb %d, time %.1f and %s\n", n.ID, n.Hbcounter, n.Time, n.Alive);
+// }
