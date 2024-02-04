@@ -33,22 +33,22 @@ func (n Node) CrashTime() int {
 	return rand.Intn(max-min) + min
 }
 
-// func (n Node) InitializeNeighbors(id int, maxNodes int) [2]int {
-// 	neighbor1 := (id + 1) % maxNodes
-// 	neighbor2 := (id + 2) % maxNodes
-// 	return [2]int{neighbor1, neighbor2}
-// }
-func (n Node) InitializeNeighbors(id int) [2]int {
-	neighbor1 := RandInt()
-	for neighbor1 == id {
-		neighbor1 = RandInt()
-	}
-	neighbor2 := RandInt()
-	for neighbor1 == neighbor2 || neighbor2 == id {
-		neighbor2 = RandInt()
-	}
+func (n Node) InitializeNeighbors(id int, maxNodes int) [2]int {
+	neighbor1 := (id + 1) % (maxNodes + 1)
+	neighbor2 := (id + 2) % (maxNodes + 1);
 	return [2]int{neighbor1, neighbor2}
 }
+// func (n Node) InitializeNeighbors(id int) [2]int {
+// 	neighbor1 := RandInt()
+// 	for neighbor1 == id {
+// 		neighbor1 = RandInt()
+// 	}
+// 	neighbor2 := RandInt()
+// 	for neighbor1 == neighbor2 || neighbor2 == id {
+// 		neighbor2 = RandInt()
+// 	}
+// 	return [2]int{neighbor1, neighbor2}
+// }
 
 func RandInt() int {
 	rand.Seed(time.Now().UnixNano())
@@ -93,6 +93,15 @@ func (m *Membership) Get(payload int, reply *Node) error {
 	//TODO
 	m.lock.Lock();
 	*reply = m.Members[payload];
+	m.lock.Unlock();
+	return nil;
+}
+
+// Reads from server 
+func (m *Membership) Read(payload int, reply *Membership) error {
+	//TODO
+	m.lock.Lock();
+	*reply = *m;
 	m.lock.Unlock();
 	return nil;
 }

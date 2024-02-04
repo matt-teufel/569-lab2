@@ -24,7 +24,6 @@ var self_node shared.Node
 // Send the current membership table to a neighboring node with the provided ID
 func sendMessage(server rpc.Client, id int, membership shared.Membership) {
 //TODO
-
 	req := shared.Request{
 		ID:    id,
 		Table: membership,
@@ -87,7 +86,7 @@ func main() {
 		fmt.Printf("Success: Node created with id= %d\n", id)
 	}
 
-	neighbors := self_node.InitializeNeighbors(id)
+	neighbors := self_node.InitializeNeighbors(id, MAX_NODES)
 	fmt.Println("Neighbors:", neighbors)
 
 	membership := shared.NewMembership()
@@ -125,8 +124,16 @@ func runAfterX(server *rpc.Client, node *shared.Node, membership *shared.Members
 func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membership, id int) {
 	// fmt.Println("run after y");
 	globalLock.Lock();
+	// read any requests from neighbors 
 	neighborMembership := readMessages(*server, id, *membership);
 	var combinedTable = shared.CombineTables(membership, neighborMembership)
+	membership = combinedTable;
+	// read state from server 
+	server.Call("Membership.Read", id, neighborMembership);
+	fmt.Println("SERVER STATE");
+	printMembership(*neighborMembership)
+	fmt.Println("END SERVER STATE");
+	combinedTable = shared.CombineTables(membership, neighborMembership);
 	membership = combinedTable;
 	var currTime float64 = calcTime();
 	// kill nodes that have not been incrased or had time update 
