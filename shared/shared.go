@@ -121,7 +121,7 @@ type Requests struct {
 }
 
 // Returns a new instance of a Membership (pointer).
-func NewRequests() *Requests {
+func NewRequests() *Requests {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
 	//TODO
 	return &Requests{
 		Pending: make(map[int]Membership),
@@ -198,3 +198,57 @@ func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 // func printNode(n Node) { 
 // 	fmt.Printf("combine tables node:  %d has hb %d, time %.1f and %s\n", n.ID, n.Hbcounter, n.Time, n.Alive);
 // }
+
+
+type LogEntry struct { 
+	term int 
+	command string
+}
+type RaftNode struct {
+	mu              sync.Mutex
+	id              int
+	currentTerm     int
+	votedFor        int
+	log             []LogEntry
+	commitIndex     int
+	lastApplied     int
+	state           string //follower, candidate, leader 
+	nextIndex       map[int]int
+	matchIndex      map[int]int
+}
+
+func NewRaftNode(id int) *RaftNode {
+	return &RaftNode{
+		id:              id,
+		currentTerm:     0,
+		votedFor:        -1,
+		log:             []LogEntry{{term: 0}},
+		commitIndex:     0,
+		lastApplied:     0,
+		state:           "follower",
+	}
+}
+
+
+type RaftMembership struct { 
+	Members map[int]RaftNode;
+	lock sync.Mutex
+}
+
+func NewRaftMembership() * RaftMembership { 
+	return &RaftMembership{
+		Members: make(map[int]RaftNode),
+	}
+}
+
+type VoteRequest struct { 
+	term int 
+	id int
+	lastLogIndex int
+	lastLogTerm int
+}
+
+type VoteResponse struct { 
+	term int 
+	vote bool
+}

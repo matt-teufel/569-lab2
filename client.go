@@ -13,10 +13,18 @@ import (
 
 const (
 	MAX_NODES  = 8
-	X_TIME     = 2
-	Y_TIME     = 5
-	Z_TIME_MAX = 100
-	Z_TIME_MIN = 40
+	X_TIME     = 200
+	Y_TIME     = 500
+	Z_TIME_MAX = 10000
+	Z_TIME_MIN = 4000
+	ELECTION_TIMEOUT = 3 * Y_TIME; // make RAFT intervals proportional to neighbor protocol sends 
+	MIN_JITTER = Y_TIME
+	MAX_JITTER = 2 * Y_TIME 
+	ELECTION_DURATION = Y_TIME * 10
+	FOLLOWER = "follower"
+	CANDIDATE = "candidate"
+	LEADER = "leader"
+
 )
 
 var self_node shared.Node
@@ -98,16 +106,16 @@ func main() {
 
 	// crashTime := self_node.CrashTime()
 
-	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
-	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
-	time.AfterFunc(time.Second*time.Duration(Z_TIME), func() { runAfterZ(server, id) })
+	time.AfterFunc(time.Millisecond*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
+	time.AfterFunc(time.Millisecond*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
+	time.AfterFunc(time.Millisecond*time.Duration(Z_TIME), func() { runAfterZ(server, id) })
 
 	wg.Add(1)
 	wg.Wait()
 }
 
 func runAfterX(server *rpc.Client, node *shared.Node, membership *shared.Membership, id int) {
-	// fmt.Println("run after x");
+	// START NEIGHBOR PROTOCOL 
 	globalLock.Lock();
 	currTime:= calcTime()
 	node.Hbcounter += 1;
@@ -117,12 +125,14 @@ func runAfterX(server *rpc.Client, node *shared.Node, membership *shared.Members
 	if err := server.Call("Membership.Update", node, &reply); err != nil { 
 		fmt.Println("Failed: Membership.Update() error: ", err)
 	}
-	time.AfterFunc(time.Second*X_TIME, func() { runAfterX(server, node, membership, id) })
+	// END NEIGHBOR PROTOCOL
+
+	time.AfterFunc(time.Millisecond*X_TIME, func() { runAfterX(server, node, membership, id) })
 	globalLock.Unlock();
 }
 
 func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membership, id int) {
-	// fmt.Println("run after y");
+	// START NEIGHBOR PROTOCOL 
 	globalLock.Lock();
 	// read any requests from neighbors 
 	neighborMembership := readMessages(*server, id, *membership);
@@ -139,7 +149,7 @@ func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membersh
 	// kill nodes that have not been incrased or had time update 
 	for _, node := range((*membership).Members) {
 		// fmt.Println("time difference: ", currTime - node.Time);
-		if(node.Alive && (currTime - node.Time) > ( MAX_NODES/2 * Y_TIME)) { 
+		if(node.Alive && (currTime - node.Time) > ELECTION_TIMEOUT) { 
 			node.Alive = false;
 			var reply shared.Node;
 			membership.Update(node, &reply);
@@ -151,7 +161,10 @@ func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membersh
 	printMembership(*membership)	
 	sendMessage(*server, neighbors[0], *membership)
 	sendMessage(*server, neighbors[1], *membership)
-	time.AfterFunc(time.Second*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
+	//END NEIGHBOR PROTOCOL 
+
+
+	time.AfterFunc(time.Millisecond*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
 	globalLock.Unlock();
 }
 
@@ -174,4 +187,37 @@ func printMembership(m shared.Membership) {
 
 func printNode(n shared.Node) { 
 	fmt.Printf("Printing node in run after X %d has hb %d, time %.1f and %s\n", n.ID, n.Hbcounter, n.Time, n.Alive);
+}
+
+func candidateWaitTime() int { 
+	return rand.Intn(MAX_JITTER-MIN_JITTER) + MIN_JITTER
+}
+func isLeaderAlive(membership shared.Membership, raftMembership shared.RaftMembership) bool {	
+	for _, node := range(raftMembership.Members) {
+		if node.state == LEADER && membership.Members[node.id].Alive {
+			return true
+		}
+	}
+	return false
+}
+
+func electionInterval(server * rpc.Client, membership * shared.Membership, raftMembership * shared.RaftMembership, id int) { 
+	if (!isLeaderAlive(membership, raftMembership)) {
+		// wait for random time
+		waitTime :=  candidateWaitTime()
+		fmt.Println("Waiting to start election with time: ", waitTime)
+		time.Sleep(time.Millisecond  * time.Duration(waitTime));
+		// if still haven't received any message from leader, and we also haven't received any
+		// vote requests from a different higher term candidate, then we become the canidate
+		// and we will request votes 
+		if ( !isLeaderAlive(membership, raftMembership)) {
+			fmt.Println("Leader is still dead, starting eleciton") 
+			// become a candidate 
+
+		}
+		var success bool
+		if err := server.Call("Election.Start", 0, &success); err != nil {
+			fmt.Println("Failed Election.Start() error: ", err)
+		}
+	}
 }
