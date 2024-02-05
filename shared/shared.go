@@ -241,6 +241,23 @@ func NewRaftMembership() * RaftMembership {
 	}
 }
 
+func (m *RaftMembership) Add(payload RaftNode, reply *RaftNode) error {
+	m.lock.Lock();
+	m.Members[payload.id] = payload;
+	m.lock.Unlock();
+	*reply = payload;
+	return nil;
+}
+
+func (m * RaftMembership) Update(payload RaftNode, reply *RaftNode) error {
+	m.lock.Lock();
+	m.Members[payload.id] = payload;
+	m.lock.Unlock();
+	*reply = payload;
+	return nil;
+}
+
+
 type VoteRequest struct { 
 	term int 
 	id int
@@ -251,4 +268,18 @@ type VoteRequest struct {
 type VoteResponse struct { 
 	term int 
 	vote bool
+}
+
+type AppendEntryRequest struct { 
+	term int
+	leaderId int
+	prevLogIndex int
+	prevLogTerm int
+	entries []LogEntry
+	leaderCommit int
+}
+
+type AppendEntriesResponse struct {
+	term int
+	success bool
 }
