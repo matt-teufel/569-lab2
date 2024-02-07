@@ -132,7 +132,12 @@ func NewRequests() *Requests {
 func (req *Requests) Add(payload Request, reply *bool) error {
 	//TODO
 	req.lock.Lock();
-	req.Pending[payload.ID] = payload.Table;
+	// if mem, exists := req.Pending[payload.ID]; exists {
+	// 	newMem := CombineTables(&mem, &payload.Table);
+	// 	req.Pending[payload.ID] = *newMem;
+	// } else { 
+		req.Pending[payload.ID] = payload.Table;
+	// }
 	req.lock.Unlock()
 	*reply = true;	
 	return nil;
@@ -164,11 +169,11 @@ func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 	var combinedTable *Membership = NewMembership();
 	var reply Node;
 	for _, value := range table2.Members {
-		if (value.Alive) {
+		// if (value.Alive) {
 			// fmt.Println("first add")
 			// printNode(value);
 			combinedTable.Add(value, &reply);
-		}
+		// }
 	}
 	for key, value := range table1.Members {
 		if(value.Alive) { 
