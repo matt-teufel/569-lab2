@@ -275,6 +275,32 @@ type VoteResponse struct {
 	vote bool
 }
 
+// Requests struct represents pending message requests
+type VoteRequests struct {
+	Pending map[int]VoteRequest
+	lock sync.Mutex
+}
+
+// Returns a new instance of a Membership (pointer).
+func NewVoteRequests() *VoteRequests {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+	//TODO
+	return &VoteRequests{
+		Pending: make(map[int]VoteRequest),
+	}
+}
+
+type VoteResponses struct { 
+	Pending map[int]VoteResponse;
+	lock sync.Mutex;
+}
+
+func NewVoteResponses() * VoteResponses { 
+	return &VoteResponses{
+		Pending: make(map[int]VoteResponse),
+	}
+}
+
+
 type AppendEntryRequest struct { 
 	term int
 	leaderId int
@@ -287,4 +313,28 @@ type AppendEntryRequest struct {
 type AppendEntriesResponse struct {
 	term int
 	success bool
+}
+
+type AppendEntriesResponses struct {
+	Pending map[int]AppendEntriesResponse
+	lock sync.Mutex
+}
+
+func NewAppendEntriesResponses() *AppendEntriesResponses {
+	return &AppendEntriesResponses{
+		Pending: make(map[int]AppendEntriesResponse),
+	}
+}
+
+// Requests struct represents pending message requests
+type AppendEntryRequests struct {
+	Pending map[int]Membership
+	lock sync.Mutex
+}
+
+// Returns a new instance of a Membership (pointer).
+func NewAppendEntryRequests() *AppendEntryRequests {
+	return &AppendEntryRequests{
+		Pending: make(map[int]Membership),
+	}
 }
