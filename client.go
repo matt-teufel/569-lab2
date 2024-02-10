@@ -13,14 +13,14 @@ import (
 
 const (
 	MAX_NODES  = 8
-	X_TIME     = 200
-	Y_TIME     = 500
-	Z_TIME_MAX = 100000
-	Z_TIME_MIN = 40000
+	X_TIME     = 2000
+	Y_TIME     = 5000
+	Z_TIME_MAX = 1000000
+	Z_TIME_MIN = 400000
 	ELECTION_TIMEOUT = 3 * Y_TIME; // make RAFT intervals proportional to neighbor protocol sends 
 	MIN_JITTER = Y_TIME
 	MAX_JITTER = 2 * Y_TIME 
-	ELECTION_DURATION = Y_TIME * 10
+	ELECTION_DURATION = Y_TIME * 5
 	MESSAGE_INTERVAL = X_TIME / 4
 	FOLLOWER = "follower"
 	CANDIDATE = "candidate"
@@ -30,7 +30,7 @@ const (
 
 var self_node shared.Node
 var currentLeader int = -1;
-var appendCount int = 0;
+var appendCount int = 1;
 var raftLock sync.Mutex;
 
 // Send the current membership table to a neighboring node with the provided ID
@@ -40,8 +40,8 @@ func sendMessage(server rpc.Client, id int, membership shared.Membership) {
 		ID:    id,
 		Table: membership,
 		}
-	var success bool
-	if err := server.Call("Requests.Add", req, &success); err != nil { 
+	var Success bool
+	if err := server.Call("Requests.Add", req, &Success); err != nil { 
 		fmt.Println("Failed Send Message error:  ", err)
 	}
 }
@@ -74,7 +74,7 @@ func main() {
 
 	args := os.Args[1:]
 
-	// Get ID from command line argument
+	// Get ID from Command line argument
 	if len(args) == 0 {
 		fmt.Println("No args given")
 		return
@@ -112,11 +112,11 @@ func main() {
 
 	time.AfterFunc(time.Millisecond*X_TIME, func() { runAfterX(server, &self_node, membership, id) })
 	time.AfterFunc(time.Millisecond*Y_TIME, func() { runAfterY(server, neighbors, membership, id) })
-	time.AfterFunc(time.Millisecond*time.Duration(Z_TIME), func() { runAfterZ(server, id) })
+	// time.AfterFunc(time.Millisecond*time.Duration(Z_TIME), func() { runAfterZ(server, id) })
 
 	self_raft_node := shared.NewRaftNode(id);
-	time.AfterFunc(time.Millisecond * MESSAGE_INTERVAL, func() { messageInterval(server, self_raft_node, 0) })
-	time.AfterFunc(time.Millisecond*ELECTION_TIMEOUT, func() { electionInterval(server, self_raft_node, id) })
+	time.AfterFunc(time.Millisecond * MESSAGE_INTERVAL, func() { messageInterval(server, membership, self_raft_node) })
+	time.AfterFunc(time.Millisecond*ELECTION_TIMEOUT, func() { electionInterval(server, membership, self_raft_node) })
 
 	wg.Add(1)
 	wg.Wait()
@@ -145,14 +145,16 @@ func runAfterY(server *rpc.Client, neighbors [2]int, membership *shared.Membersh
 	// read any requests from neighbors 
 	neighborMembership := readMessages(*server, id, *membership);
 	var combinedTable = shared.CombineTables(membership, neighborMembership)
-	membership = combinedTable;
-	// read state from server 
+	raftLock.Lock();
+	defer raftLock.Unlock();
+	*membership = *combinedTable;
+	// read State from server 
 	server.Call("Membership.Read", id, neighborMembership);
 	// fmt.Println("SERVER STATE");
 	// printMembership(*neighborMembership)
 	// fmt.Println("END SERVER STATE");
 	combinedTable = shared.CombineTables(membership, neighborMembership);
-	membership = combinedTable;
+	*membership = *combinedTable;
 	var currTime float64 = calcTime();
 	// kill nodes that have not been incrased or had time update 
 	for _, node := range((*membership).Members) {
@@ -205,220 +207,238 @@ func isLeaderAlive(membership shared.Membership) bool {
 		if membership.Members[currentLeader].Alive {
 			return true
 		} else { 
+			printMembership(membership);
 			currentLeader = -1;
 		}
 	}
 	return false 
 }
 
-func sendAppendRequest(server rpc.Client, membership shared.Membership, rn shared.RaftNode, 
-	entry shared.LogEntry) { 
+func sendAppendEntryRequest(server rpc.Client, membership shared.Membership, rn shared.RaftNode, 
+	Entry shared.LogEntry) { 
+	// fmt.Println("Printing raft node in send entry");
+	// printRaftNodeState(rn);
 	for _, node := range membership.Members { 
-		if (node.Alive) { 
-			req := shared.AppendRequest{
-				term: rn.currentTerm,
-				leaderId: rn.id,
-				clientId: node.ID,
-				prevLogTerm: rn.prevLogTerm,
-				entry: entry,
-				leaderCommit: rn.commitIndex,
+		if (node.Alive && node.ID != rn.ID) { 
+			req := shared.AppendEntryRequest{
+				Term: rn.CurrentTerm,
+				LeaderId: rn.ID,
+				ClientId: node.ID,
+				Entry: Entry,
+				LeaderCommit: rn.CommitIndex,
 			}
-			var success bool;
-			if err := server.Call("AppendRequests.Add", req, &success); err != nil {
-				fmt.Println("Failed: AppendRequests.Add() error: ", err)
+			var Success bool;
+			if err := server.Call("AppendEntryRequests.Add", req, &Success); err != nil {
+				fmt.Println("Failed: AppendEntryRequests.Add() error: ", err)
 			}
 		}
 	}
 }
 
-func sendAppendResponse(server rpc.Client, term int, clientId int, success bool)  { 
-	resp := shared.AppendResponse{
-		term: term,
-		clientId: clientId,
-		success: success,
+func sendAppendEntryResponse(server rpc.Client, Term int, ClientId int, Success bool)  { 
+	resp := shared.AppendEntryResponse{
+		Term: Term,
+		ID: ClientId,
+		Success: Success,
 	}
 	var reply bool;
-	if err := server.Call("AppendResponses.Add", resp, &reply); err != nil {
-		fmt.Println("Failed: AppendResponses.Add() error: ", err)
+	if err := server.Call("AppendEntryResponses.Add", resp, &reply); err != nil {
+		fmt.Println("Failed: AppendEntryResponses.Add() error: ", err)
 	}
 }
 
-func listenAppendRequest(server rpc.Client, clientId int) * shared.AppendEntryRequest { 
-	var reply shared.AppendRequest;
-	if err := server.Call("AppendRequests.Listen", clientId, &reply); err != nil {
-		fmt.Println("Failed: AppendRequests.Listen() error: ", err)
+func listenAppendEntryRequest(server rpc.Client, ClientId int)  shared.AppendEntryRequest { 
+	var reply shared.AppendEntryRequest;
+	if err := server.Call("AppendEntryRequests.Listen", ClientId, &reply); err != nil {
+		fmt.Println("Failed: AppendEntryRequests.Listen() error: ", err)
 	}
-	return &reply;
+	return reply;
 }
 
-func listenAppendResponse(server rpc.Client, clientId int) * shared.AppendEntriesResponse { 
-	var reply shared.AppendResponse;
-	if err := server.Call("AppendResponses.Listen", clientId, &reply); err != nil {
-		fmt.Println("Failed: AppendResponses.Listen() error: ", err)
+func listenAppendEntryResponse(server rpc.Client, ClientId int)  shared.AppendEntryResponse { 
+	var reply shared.AppendEntryResponse;
+	if err := server.Call("AppendEntryResponses.Listen", ClientId, &reply); err != nil {
+		fmt.Println("Failed: AppendEntryResponses.Listen() error: ", err)
 	}
-	return &reply;
+	return reply;
 }
 
 func sendVoteRequest(server rpc.Client, membership shared.Membership, rn shared.RaftNode ) { 
+	// fmt.Println("In send vote request")
+	// printMembership(membership)
 	for _, node := range membership.Members {
-		if (node.Alive) {
+		if (node.Alive && node.ID!= rn.ID) {
 			req := shared.VoteRequest{
-				term: rn.currentTerm + 1,
-				candidateId: rn.id,
-				lastLogIndex: rn.commitIndex,
-				lastLogTerm: rn.currentTerm,
+				Term: rn.CurrentTerm + 1,
+				LeaderId: rn.ID,
+				ClientId: node.ID,
+				LastLogIndex: rn.CommitIndex,
+				LastLogTerm: rn.CurrentTerm,
 			}
-			var success bool;
-			if err := server.Call("VoteRequests.Add", req, &success); err != nil {
+			var Success bool;
+			// fmt.Println("Sending vote request to ", node.ID)
+			if err := server.Call("VoteRequests.Add", req, &Success); err != nil {
 				fmt.Println("Failed: VoteRequests.Add() error: ", err)
 			}
 		}
 	}
 }
 
-func listenVoteRequest(server rpc.Client, clientId int) * shared.VoteRequest { 
+func listenVoteRequest(server rpc.Client, ClientId int) shared.VoteRequest { 
 	var reply shared.VoteRequest;
-	if err := server.Call("VoteRequests.Listen", clientId, &reply); err != nil {
+	if err := server.Call("VoteRequests.Listen", ClientId, &reply); err != nil {
 		fmt.Println("Failed: VoteRequests.Listen() error: ", err)
 	}
-	return &reply;
+	return reply;
 }
 
-func sendVoteResponse(server rpc.Client, term int, clientId int, success bool)  {
+func sendVoteResponse(server rpc.Client, Term int, ClientId int, Success bool)  {
 	resp := shared.VoteResponse{
-		term: term,
-		clientId: clientId,
-		success: success,
+		Term: Term,
+		ID: ClientId,
+		Vote: Success,
 	}
 	var reply bool;
 	if err := server.Call("VoteResponses.Add", resp, &reply); err != nil {
 		fmt.Println("Failed: VoteResponses.Add() error: ", err)
 	}
 }
-func listenVoteResponse(server rpc.Client, clientId int) * shared.VoteResponse {
+func listenVoteResponse(server rpc.Client, ClientId int) shared.VoteResponse {
 	var reply shared.VoteResponse;
-	if err := server.Call("VoteResponses.Listen", clientId, &reply); err != nil {
+	if err := server.Call("VoteResponses.Listen", ClientId, &reply); err != nil {
 		fmt.Println("Failed: VoteResponses.Listen() error: ", err)
 	}
-	return &reply;
+	return reply;
 } 
 
 
 
 func messageInterval(server * rpc.Client, membership *shared.Membership, rn * shared.RaftNode) {
-	fmt.Println("message interval")
-	if (rn.state == CANDIDATE) { 
+	// fmt.Println("message interval")
+	if (rn.State == CANDIDATE) { 
+		time.AfterFunc(time.Millisecond * MESSAGE_INTERVAL, func() { messageInterval(server, membership, rn) })
 		return; // we can ignore messages during our eleciton 
 	}
 	raftLock.Lock();
 	defer raftLock.Unlock();
-	if (currentLeader == rn.id) { 
+	// printRaftNodeState(*rn);
+	if (currentLeader == rn.ID) { 
 		// we are the leader, we want to continuously send append requests and responses 
-		if (rn.commitIndex == rn.appendIndex) { 
-			// we need to append a new log entry generate a new request 
-			fmt.Println("Sending a new append request")
-			newLog := shared.LogEntry{term:rn.currentTerm, command:"new command"}
-			rn.appendIndex++;
-			rn.prevLogTerm = rn.currentTerm;
-			rn.log.append(newLog);
-			sendAppendRequest(*server, *membership, *rn, newLog);
+		if (rn.CommitIndex == rn.AppendIndex) { 
+			// we need to append a new Log Entry generate a new request 
+			// fmt.Println("Sending a new append request")
+			newLog := shared.LogEntry{Term:rn.CurrentTerm, Command:"new Command"}
+			rn.AppendIndex++;
+			rn.Log = append(rn.Log, newLog);
+			sendAppendEntryRequest(*server, *membership, *rn, newLog);
 		} else { 
-			// we need to listen for appendResponses 
+			// we need to listen for AppendEntryResponses 
 			for _, node := range(*membership).Members {
-				if (node.Alive) {
-					newAppendResponse := listenAppendResponse(*server, node.ID);
-					if (newAppendResponse.term == rn.currentTerm) {
-						fmt.Println("Received a new append response")
+				if (node.Alive && node.ID!= rn.ID) {
+					newAppendEntryResponse := listenAppendEntryResponse(*server, node.ID);
+					if (newAppendEntryResponse.Term == rn.CurrentTerm) {
+						// fmt.Println("Received a new append response")
 						appendCount++;
 					}
 				}
 			}
 			if (appendCount > MAX_NODES/2)  {
-				//we have received enough approvals, we can commit this entry 
-				rn.commitIndex = rn.appendIndex;
-				appendCount = 0
+				//we have received enough approvals, we can commit this Entry 
+				rn.CommitIndex = rn.AppendIndex;
+				appendCount = 1
 			}
 		}
 	} else { 
 		// we are a follower, we need to listen for append requests and send responses
-		newAppendRequest := listenAppendRequest(*server, rn.id);
-		if (newAppendRequest.term >= rn.currentTerm) {
-			if(currentLeader != newAppendRequest.leaderId) {
+		newAppendEntryRequest := listenAppendEntryRequest(*server, rn.ID);
+		// fmt.Println("Received append entry request term: %d, LeaderId: %d, ClientId: %d LeadeerCommit: %d",
+		//  newAppendEntryRequest.Term, newAppendEntryRequest.LeaderId, newAppendEntryRequest.ClientId, newAppendEntryRequest.LeaderCommit)	
+		if (newAppendEntryRequest.Term >= rn.CurrentTerm) {
+			if(currentLeader != newAppendEntryRequest.LeaderId) {
 				// we have a new leader, update our leader
-				fmt.Println("Updating to our new leader leader")
-				currentLeader = newAppendRequest.leaderId;
+				fmt.Printf("We have a new leader, updating our leader to: %d\n", newAppendEntryRequest.LeaderId)
+				currentLeader = newAppendEntryRequest.LeaderId;
 			}
-			fmt.Println("Received a new append request, sending a response ")
-			rn.currentTerm = newAppendRequest.term;
-			newAppendResponse := shared.AppendEntriesResponse{
-				term: rn.currentTerm,
-				success: true,
-			}
-			if (rn.appendIndex - rn.commitIndex > 1) { 
-				rn.commitIndex++; // previous log entry must have got majority of votes for new one with hgiher index 
-			}
-			rn.appendIndex++;
-			rn.log.append(newAppendRequest.entry);
-			sendAppendResponse(*server, newAppendResponse.term, newAppendResponse.clientId, newAppendResponse.success);
-		}
-		
+			// fmt.Println("Received a new append request, sending a response ")
+			rn.CurrentTerm = newAppendEntryRequest.Term;
+			rn.CommitIndex = rn.AppendIndex;
+			rn.AppendIndex++;
+			rn.Log = append(rn.Log, newAppendEntryRequest.Entry);
+			sendAppendEntryResponse(*server, rn.CurrentTerm, 
+				rn.ID, true);
+		} 
 	}
+	time.AfterFunc(time.Millisecond * MESSAGE_INTERVAL, func() { messageInterval(server, membership, rn) })
 }
 
 func electionInterval(server * rpc.Client, membership * shared.Membership, rn * shared.RaftNode) { 
 	fmt.Println("election interval")
 	raftLock.Lock();
-	defer raftLock.Unlock();
-	if (!isLeaderAlive(membership)) {
+	printRaftNodeState(*rn);
+	if (!isLeaderAlive(*membership)) {
 		// wait for random time
 		waitTime :=  candidateWaitTime()
-		fmt.Println("Waiting to start election with time: ", waitTime)
+		fmt.Printf("The leader is dead, I will wait: %d ms before starting a new election\n", waitTime)
+		raftLock.Unlock();
 		time.Sleep(time.Millisecond  * time.Duration(waitTime));
+		raftLock.Lock();
 		// if still haven't received any message from leader, and we also haven't received any
-		// vote requests from a different higher term candidate, then we become the canidate
-		// and we will request votes 
-		if (!isLeaderAlive(membership)) {
+		// Vote requests from a different higher Term candidate, then we become the canidate
+		// and we will request Votes 
+		if (!isLeaderAlive(*membership)) {
 			// become a candidate 
-			voteRequest := listenVoteRequest(*server, rn.id);
-			if(voteRequest.term == -1 || voteRequest.lastLogIndex < rn.commitIndex) { 
+			VoteRequest := listenVoteRequest(*server, rn.ID);
+			// fmt.Printf("Vote request found: %d %d %d %d %d\n", VoteRequest.ClientId, VoteRequest.LeaderId, VoteRequest.Term, VoteRequest.LastLogIndex, VoteRequest.LastLogTerm);
+
+			if(VoteRequest.Term == -1 || VoteRequest.LastLogIndex < rn.CommitIndex) { 
 				// this means that this node is the first candidate to start an election or the 
-				// current node running for election has out of date log 
-				fmt.Println("Starting election")
+				// current node running for election has out of date Log 
+				fmt.Println("Making myself a candidate and starting an election")
 				sendVoteRequest(*server, *membership, *rn);
+				raftLock.Unlock()
 				time.Sleep(time.Millisecond * ELECTION_DURATION);
-				fmt.Println("totaling up all the votes")
-				var voteTotal int = 0;
+				raftLock.Lock()
+				// fmt.Println("totaling up all the Votes")
+				var voteTotal int = 1;
 				for _, node := range membership.Members {
-					if (node.Alive) {
+					if (node.Alive && node.ID!= rn.ID) {
 						voteResponse := listenVoteResponse(*server, node.ID);
-						if (voteResponse.success) {
+						if (voteResponse.Vote) {
 							voteTotal += 1;
 						}
 					}
 				}
-				if (voteTotal > (len(membership.Members)/2)) {
+				// fmt.Println("total votes: ", voteTotal)
+				if (voteTotal > MAX_NODES/2) {
 					// we have majority approval, we become the leader
-					rn.state = LEADER;
-					rn.currentTerm = voteRequest.term;
-					currentLeader = rn.id;
-					fmt.Println("I am the leader")
+					rn.State = LEADER;
+					rn.CurrentTerm++;
+					currentLeader = rn.ID;
+					fmt.Println("The election is over, and I received a majority of votes, I am now the leader")
+					printCrown();
 				} else { 
-					// we don't have enough votes 
-					rn.state = FOLLOWER;
-					fmt.Println("Not enough votes, becoming a follower again ")
+					// we don't have enough Votes 
+					rn.State = FOLLOWER;
+					fmt.Println("I did not receive enough votes. I will become a follower again ")
 				}
+			    raftLock.Unlock();
 			} else { 
-				// someone else started an election, let's vote for them
-				fmt.Println("voting for: ", voteRequest.candidateId);
-				rn.votedFor = voteRequest.candidateId;
-				sendVoteResponse(*server, voteRequest.term, voteRequest.candidateId, true);
-
+				// someone else started an election, let's Vote for them
+				fmt.Printf("Node %d already started an election, so I will vote for them isntead of becoming a candidate\n", VoteRequest.LeaderId);
+				rn.VotedFor = VoteRequest.LeaderId;
+				sendVoteResponse(*server, VoteRequest.Term, VoteRequest.ClientId, true);
+				raftLock.Unlock();
 			}
+		} else {
+			raftLock.Unlock()
 		}
+	} else {
+		raftLock.Unlock()
 	}
+	time.AfterFunc(time.Millisecond*ELECTION_TIMEOUT, func() { electionInterval(server,membership, rn) })
 }
 
 func printRaftNodeState(rn shared.RaftNode) {
-	fmt.Printf("Node %d is a %s, currentLeader: %d, currentTerm: %d, appendIndex: %d, commitIndex %d  \n",
-	 rn.id, rn.state, currentLeader, rn.currentTerm, rn.appendIndex, rn.commitIndex);
+	fmt.Printf("Node %d is a %s, currentLeader: %d, CurrentTerm: %d, AppendIndex: %d, CommitIndex %d  \n",
+	 rn.ID, rn.State, currentLeader, rn.CurrentTerm, rn.AppendIndex, rn.CommitIndex);
 }

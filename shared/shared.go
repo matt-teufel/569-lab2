@@ -33,18 +33,18 @@ func (n Node) CrashTime() int {
 	return rand.Intn(max-min) + min
 }
 
-func (n Node) InitializeNeighbors(id int, maxNodes int) [2]int {
-	neighbor1 := (id + 1) % (maxNodes + 1)
-	neighbor2 := (id + 2) % (maxNodes + 1);
+func (n Node) InitializeNeighbors(ID int, maxNodes int) [2]int {
+	neighbor1 := (ID % (maxNodes-1))  + 1
+	neighbor2 := (ID  % (maxNodes -1)) + 2;
 	return [2]int{neighbor1, neighbor2}
 }
-// func (n Node) InitializeNeighbors(id int) [2]int {
+// func (n Node) InitializeNeighbors(ID int) [2]int {
 // 	neighbor1 := RandInt()
-// 	for neighbor1 == id {
+// 	for neighbor1 == ID {
 // 		neighbor1 = RandInt()
 // 	}
 // 	neighbor2 := RandInt()
-// 	for neighbor1 == neighbor2 || neighbor2 == id {
+// 	for neighbor1 == neighbor2 || neighbor2 == ID {
 // 		neighbor2 = RandInt()
 // 	}
 // 	return [2]int{neighbor1, neighbor2}
@@ -206,43 +206,44 @@ func CombineTables(table1 *Membership, table2 *Membership) *Membership {
 
 
 type LogEntry struct { 
-	term int 
-	command string
+	Term int 
+	Command string
 }
 type RaftNode struct {
-	id              int
-	currentTerm     int
-	votedFor        int
-	log             []LogEntry
-	commitIndex     int
-	appendIndex     int
-	state           string //follower, candidate, leader 
+	ID              int
+	CurrentTerm     int
+	VotedFor        int
+	Log             []LogEntry
+	CommitIndex     int
+	AppendIndex     int
+	State           string //follower, candIDate, leader 
 }
 
-func NewRaftNode(id int) *RaftNode {
+func NewRaftNode(ID int) *RaftNode {
 	return &RaftNode{
-		id:              id,
-		currentTerm:     0,
-		votedFor:        -1,
-		log:             []LogEntry{{term: 0}},
-		commitIndex:     0,
-		appendIndex:     0,
-		state:           "follower",
+		ID:              ID,
+		CurrentTerm:     0,
+		VotedFor:        -1,
+		Log:             []LogEntry{{Term: 0}},
+		CommitIndex:     0,
+		AppendIndex:     0,
+		State:           "follower",
 	}
 }
 
 
 type VoteRequest struct { 
-	term int 
-	id int
-	lastLogIndex int
-	lastLogTerm int
+	Term int 
+	LeaderId int
+	ClientId int
+	LastLogIndex int
+	LastLogTerm int
 }
 
 type VoteResponse struct { 
-	term int 
-	vote bool
-	id int
+	Term int 
+	Vote bool
+	ID int
 }
 
 // Requests struct represents pending message requests
@@ -260,24 +261,29 @@ func NewVoteRequests() *VoteRequests {
 }
 
 func (req *VoteRequests) Add(payload VoteRequest, reply * bool) error {
+	// fmt.Println("Adding Vote request");
 	req.lock.Lock()
 	defer req.lock.Unlock()
-	req.Pending[payload.id] = payload;
+	req.Pending[payload.ClientId] = payload;
 	*reply = true;
 	return nil;
 }
 
 func (req *VoteRequests) Listen(ID int, reply *VoteRequest) error {
+	// fmt.Println("Listening for Vote request");
 	req.lock.Lock()
 	defer req.lock.Unlock()
-	if vote, exists := req.Pending[ID]; exists {
-		*reply = vote;
+	if Vote, exists := req.Pending[ID]; exists {
+		// fmt.Printf("Vote request found: %d %d %d %d %d\n", Vote.LeaderId,Vote.ClientId, Vote.Term, Vote.LastLogIndex, Vote.LastLogTerm);
+		*reply = Vote;
 	} else {
-		reply = &VoteRequest{
-			term: -1,
-			id: -1,
-			lastLogIndex: -1,
-			lastLogTerm: -1,
+		// fmt.Println("Vote request not found");
+		*reply = VoteRequest{
+			Term: -1,
+			ClientId: -1,
+			LeaderId: -1,
+			LastLogIndex: -1,
+			LastLogTerm: -1,
 		}
 	}
 	return nil;
@@ -295,35 +301,36 @@ func NewVoteResponses() * VoteResponses {
 }
 
 func (req *VoteResponses) Add(payload VoteResponse, reply * bool) error {
+	// fmt.Println("adding Vote response");
 	req.lock.Lock()
 	defer req.lock.Unlock()
-	req.Pending[payload.id] = payload;
+	req.Pending[payload.ID] = payload;
 	*reply = true;
 	return nil;
 }
 
 func (req *VoteResponses) Listen(ID int, reply *VoteResponse) error {
+	// fmt.Println("Listening for Vote response");
 	req.lock.Lock()
 	defer req.lock.Unlock()
-	if vote, exists := req.Pending[ID]; exists {
-		*reply = vote;
+	if Vote, exists := req.Pending[ID]; exists {
+		*reply = Vote;
 	} else {
-		reply = &VoteResponse{
-			term: -1,
-			vote: false,
-			id: -1,
+		*reply = VoteResponse{
+			Term: -1,
+			Vote: false,
+			ID: -1,
 		}
 	}
 	return nil;
 } 
 type AppendEntryRequest struct { 
-	term int
-	leaderId int
-	clientId int
-	prevLogIndex int
-	prevLogTerm int
-	entry LogEntry
-	leaderCommit int
+	Term int
+	LeaderId int
+	ClientId int
+	PrevLogIndex int
+	Entry LogEntry
+	LeaderCommit int
 }
 
 // Requests struct represents pending message requests
@@ -340,73 +347,76 @@ func NewAppendEntryRequests() *AppendEntryRequests {
 }
 
 func (req *AppendEntryRequests) Add(payload AppendEntryRequest, reply * bool) error {
+	// fmt.Println("Adding append Entry request");
 	req.lock.Lock()
 	defer req.lock.Unlock()
-	req.Pending[payload.clientId] = payload;
+	req.Pending[payload.ClientId] = payload;
 	*reply = true;
 	return nil;
 }
 
-func (req *AppendEntryRequests) Listen(clientId int, reply *AppendEntryRequest) error {
+func (req *AppendEntryRequests) Listen(ClientId int, reply *AppendEntryRequest) error {
+	// fmt.Println("Listening for append Entry request");
 	req.lock.Lock()
 	defer req.lock.Unlock()
-	if _, ok := req.Pending[clientId]; ok {
-		*reply = req.Pending[clientId];
-		delete(req.Pending, clientId);
+	if _, ok := req.Pending[ClientId]; ok {
+		*reply = req.Pending[ClientId];
+		delete(req.Pending, ClientId);
 		return nil;
 	}
 	*reply = AppendEntryRequest{
-		term: -1,
-		leaderId: -1,
-		clientId: -1,
-		prevLogIndex: -1,
-		prevLogTerm: -1,
-		entry: LogEntry{
-			term: -1,
-			command: "",
+		Term: -1,
+		LeaderId: -1,
+		ClientId: -1,
+		PrevLogIndex: -1,
+		Entry: LogEntry{
+			Term: -1,
+			Command: "",
 		},
-		leaderCommit: -1,
+		LeaderCommit: -1,
 	}
 	return nil;
 }
 
-type AppendEntriesResponse struct {
-	term int
-	id int
-	success bool
+type AppendEntryResponse struct {
+	Term int
+	ID int
+	Success bool
 }
 
-type AppendEntriesResponses struct {
-	Pending map[int]AppendEntriesResponse
+type AppendEntryResponses struct {
+	Pending map[int]AppendEntryResponse
 	lock sync.Mutex
 }
 
-func NewAppendEntriesResponses() *AppendEntriesResponses {
-	return &AppendEntriesResponses{
-		Pending: make(map[int]AppendEntriesResponse),
+func NewAppendEntryResponses() *AppendEntryResponses {
+	return &AppendEntryResponses{
+		Pending: make(map[int]AppendEntryResponse),
 	}
 }
 
-func (resp *AppendEntriesResponses) Add(payload AppendEntriesResponse, reply *bool) error {
+func (resp *AppendEntryResponses) Add(payload AppendEntryResponse, reply *bool) error {
+	// fmt.Println("Adding append Entry response");
 	resp.lock.Lock()
 	defer resp.lock.Unlock()
-	resp.Pending[payload.id] = payload;
+	resp.Pending[payload.ID] = payload;
 	*reply = true;
 	return nil;
 }
 
-func (resp *AppendEntriesResponses) Listen(id int, reply *AppendEntriesResponse) error {
+func (resp *AppendEntryResponses) Listen(ID int, reply *AppendEntryResponse) error {
+	// fmt.Println("Listening for append Entry response");
 	resp.lock.Lock()
 	defer resp.lock.Unlock()
-	if _, ok := resp.Pending[id]; ok {
-		*reply = resp.Pending[id];
-		delete(resp.Pending, id);
+	if _, ok := resp.Pending[ID]; ok {
+		*reply = resp.Pending[ID];
+		delete(resp.Pending, ID);
 		return nil;
 	}
-	*reply = AppendEntriesResponse{
-		term: -1,
-		id: -1,
-		success: false,
+	*reply = AppendEntryResponse{
+		Term: -1,
+		ID: -1,
+		Success: false,
 	}
 	return nil;
 }
