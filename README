@@ -1,7 +1,6 @@
 Matthew Teufel and Youngjun Park
 
-This verison of our lab2 uses RPC. This implementaiton is not 100% complete. There is some issue
-with memory corruption that could not be fully debugged, but the core portions of the protocol are working
+lab 3. RAFT implementation using go RPC for passign messages and setting up our network
 
 run server with:
 go run server.go

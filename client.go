@@ -13,10 +13,10 @@ import (
 
 const (
 	MAX_NODES  = 8
-	X_TIME     = 2000
-	Y_TIME     = 5000
-	Z_TIME_MAX = 1000000
-	Z_TIME_MIN = 400000
+	X_TIME     = 1500
+	Y_TIME     = 3000
+	Z_TIME_MAX = 5000000
+	Z_TIME_MIN = 2000000
 	ELECTION_TIMEOUT = 3 * Y_TIME; // make RAFT intervals proportional to neighbor protocol sends 
 	MIN_JITTER = Y_TIME
 	MAX_JITTER = 2 * Y_TIME 
@@ -207,7 +207,7 @@ func isLeaderAlive(membership shared.Membership) bool {
 		if membership.Members[currentLeader].Alive {
 			return true
 		} else { 
-			printMembership(membership);
+			// printMembership(membership);
 			currentLeader = -1;
 		}
 	}
@@ -372,7 +372,7 @@ func messageInterval(server * rpc.Client, membership *shared.Membership, rn * sh
 }
 
 func electionInterval(server * rpc.Client, membership * shared.Membership, rn * shared.RaftNode) { 
-	fmt.Println("election interval")
+	// fmt.Println("election interval")
 	raftLock.Lock();
 	printRaftNodeState(*rn);
 	if (!isLeaderAlive(*membership)) {
@@ -414,8 +414,10 @@ func electionInterval(server * rpc.Client, membership * shared.Membership, rn * 
 					rn.State = LEADER;
 					rn.CurrentTerm++;
 					currentLeader = rn.ID;
-					fmt.Println("The election is over, and I received a majority of votes, I am now the leader")
-					printCrown();
+					fmt.Println("\nThe election is over, and I received a majority of votes, I am now the leader")
+					println("\n :)")
+					rn.AppendIndex = rn.CommitIndex;
+				
 				} else { 
 					// we don't have enough Votes 
 					rn.State = FOLLOWER;
