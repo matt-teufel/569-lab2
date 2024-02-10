@@ -11,10 +11,18 @@ func main() {
 	// create a Membership list
 	nodes := shared.NewMembership()
 	requests := shared.NewRequests()
+	voteRequests := shared.NewVoteRequests()
+	voteResponses := shared.NewVoteResponses()
+	appendEntryRequests := shared.NewAppendEntryRequests()
+	appendEntryResponses := shared.NewAppendEntryResponses()
 
 	// register nodes with `rpc.DefaultServer`
 	rpc.Register(nodes)
 	rpc.Register(requests)
+	rpc.Register(voteRequests)
+	rpc.Register(voteResponses)
+	rpc.Register(appendEntryRequests)
+	rpc.Register(appendEntryResponses)
 
 	// register an HTTP handler for RPC communication
 	rpc.HandleHTTP()

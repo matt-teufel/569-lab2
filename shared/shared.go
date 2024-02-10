@@ -210,16 +210,13 @@ type LogEntry struct {
 	command string
 }
 type RaftNode struct {
-	mu              sync.Mutex
 	id              int
 	currentTerm     int
 	votedFor        int
 	log             []LogEntry
 	commitIndex     int
-	lastApplied     int
+	appendIndex     int
 	state           string //follower, candidate, leader 
-	nextIndex       map[int]int
-	matchIndex      map[int]int
 }
 
 func NewRaftNode(id int) *RaftNode {
@@ -229,37 +226,9 @@ func NewRaftNode(id int) *RaftNode {
 		votedFor:        -1,
 		log:             []LogEntry{{term: 0}},
 		commitIndex:     0,
-		lastApplied:     0,
+		appendIndex:     0,
 		state:           "follower",
 	}
-}
-
-
-type RaftMembership struct { 
-	Members map[int]RaftNode;
-	lock sync.Mutex
-}
-
-func NewRaftMembership() * RaftMembership { 
-	return &RaftMembership{
-		Members: make(map[int]RaftNode),
-	}
-}
-
-func (m *RaftMembership) Add(payload RaftNode, reply *RaftNode) error {
-	m.lock.Lock();
-	m.Members[payload.id] = payload;
-	m.lock.Unlock();
-	*reply = payload;
-	return nil;
-}
-
-func (m * RaftMembership) Update(payload RaftNode, reply *RaftNode) error {
-	m.lock.Lock();
-	m.Members[payload.id] = payload;
-	m.lock.Unlock();
-	*reply = payload;
-	return nil;
 }
 
 
@@ -273,6 +242,7 @@ type VoteRequest struct {
 type VoteResponse struct { 
 	term int 
 	vote bool
+	id int
 }
 
 // Requests struct represents pending message requests
@@ -289,6 +259,30 @@ func NewVoteRequests() *VoteRequests {
 	}
 }
 
+func (req *VoteRequests) Add(payload VoteRequest, reply * bool) error {
+	req.lock.Lock()
+	defer req.lock.Unlock()
+	req.Pending[payload.id] = payload;
+	*reply = true;
+	return nil;
+}
+
+func (req *VoteRequests) Listen(ID int, reply *VoteRequest) error {
+	req.lock.Lock()
+	defer req.lock.Unlock()
+	if vote, exists := req.Pending[ID]; exists {
+		*reply = vote;
+	} else {
+		reply = &VoteRequest{
+			term: -1,
+			id: -1,
+			lastLogIndex: -1,
+			lastLogTerm: -1,
+		}
+	}
+	return nil;
+}
+
 type VoteResponses struct { 
 	Pending map[int]VoteResponse;
 	lock sync.Mutex;
@@ -300,18 +294,85 @@ func NewVoteResponses() * VoteResponses {
 	}
 }
 
+func (req *VoteResponses) Add(payload VoteResponse, reply * bool) error {
+	req.lock.Lock()
+	defer req.lock.Unlock()
+	req.Pending[payload.id] = payload;
+	*reply = true;
+	return nil;
+}
 
+func (req *VoteResponses) Listen(ID int, reply *VoteResponse) error {
+	req.lock.Lock()
+	defer req.lock.Unlock()
+	if vote, exists := req.Pending[ID]; exists {
+		*reply = vote;
+	} else {
+		reply = &VoteResponse{
+			term: -1,
+			vote: false,
+			id: -1,
+		}
+	}
+	return nil;
+} 
 type AppendEntryRequest struct { 
 	term int
 	leaderId int
+	clientId int
 	prevLogIndex int
 	prevLogTerm int
-	entries []LogEntry
+	entry LogEntry
 	leaderCommit int
+}
+
+// Requests struct represents pending message requests
+type AppendEntryRequests struct {
+	Pending map[int]AppendEntryRequest
+	lock sync.Mutex
+}
+
+// Returns a new instance of a Membership (pointer).
+func NewAppendEntryRequests() *AppendEntryRequests {
+	return &AppendEntryRequests{
+		Pending: make(map[int]AppendEntryRequest),
+	}
+}
+
+func (req *AppendEntryRequests) Add(payload AppendEntryRequest, reply * bool) error {
+	req.lock.Lock()
+	defer req.lock.Unlock()
+	req.Pending[payload.clientId] = payload;
+	*reply = true;
+	return nil;
+}
+
+func (req *AppendEntryRequests) Listen(clientId int, reply *AppendEntryRequest) error {
+	req.lock.Lock()
+	defer req.lock.Unlock()
+	if _, ok := req.Pending[clientId]; ok {
+		*reply = req.Pending[clientId];
+		delete(req.Pending, clientId);
+		return nil;
+	}
+	*reply = AppendEntryRequest{
+		term: -1,
+		leaderId: -1,
+		clientId: -1,
+		prevLogIndex: -1,
+		prevLogTerm: -1,
+		entry: LogEntry{
+			term: -1,
+			command: "",
+		},
+		leaderCommit: -1,
+	}
+	return nil;
 }
 
 type AppendEntriesResponse struct {
 	term int
+	id int
 	success bool
 }
 
@@ -326,15 +387,26 @@ func NewAppendEntriesResponses() *AppendEntriesResponses {
 	}
 }
 
-// Requests struct represents pending message requests
-type AppendEntryRequests struct {
-	Pending map[int]Membership
-	lock sync.Mutex
+func (resp *AppendEntriesResponses) Add(payload AppendEntriesResponse, reply *bool) error {
+	resp.lock.Lock()
+	defer resp.lock.Unlock()
+	resp.Pending[payload.id] = payload;
+	*reply = true;
+	return nil;
 }
 
-// Returns a new instance of a Membership (pointer).
-func NewAppendEntryRequests() *AppendEntryRequests {
-	return &AppendEntryRequests{
-		Pending: make(map[int]Membership),
+func (resp *AppendEntriesResponses) Listen(id int, reply *AppendEntriesResponse) error {
+	resp.lock.Lock()
+	defer resp.lock.Unlock()
+	if _, ok := resp.Pending[id]; ok {
+		*reply = resp.Pending[id];
+		delete(resp.Pending, id);
+		return nil;
 	}
+	*reply = AppendEntriesResponse{
+		term: -1,
+		id: -1,
+		success: false,
+	}
+	return nil;
 }
